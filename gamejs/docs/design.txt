@@ -1,0 +1,5 @@
+General design ideas:
+
+* This library handles game logic and defines the various data
+  structures.  Physics, graphics, etc are handled by plugging into
+  external code.
