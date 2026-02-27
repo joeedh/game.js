@@ -3,9 +3,10 @@ import '../util/struct.js'
 
 export var SocketFlags = {
   SELECT : 1,
-  INPUT  : 2,
-  OUTPUT : 4,
-  TAG    : 8
+  UPDATE : 2,
+  INPUT  : 4,
+  OUTPUT : 8,
+  TAG    : 16
 };
 
 export var NodeFlags = {
@@ -23,11 +24,18 @@ export class NodeSocketAbstract extends AspectClass {
   }};
   
   constructor(name) {
+    super();
+    
+    this.tooltip = undefined;
     this.name = name;
     this.node = undefined; //owning node
     this.links = [];
     this.id = -1;
     this.flag = this.constructor.define().flag;
+  }
+  
+  tooltip(str) {
+    this.tooltip = str;
   }
   
   toJSON() {
@@ -43,6 +51,19 @@ export class NodeSocketAbstract extends AspectClass {
       links : links,
       id : this.id,
       flag : this.flag
+    }
+  }
+  
+  get triggered() {
+    return this.flag & SocketFlags.UPDATE;
+  }
+  
+  trigger() {
+    this.flag |= SocketFlags.UPDATE;
+    
+    for (let e of this.links) {
+      e.flag |= SocketFlags.UPDATE;
+      e.node.flag |= NodeFlags.UPDATE;
     }
   }
   
@@ -100,6 +121,13 @@ NodeSocketAbstract {
 
 STRUCT.add_class(NodeSocketAbstract);
 
+class _NodeInherit {
+  constructor(defobj) {
+    this.def = defobj;
+    this.name = this.def.name;
+  }
+}
+
 export class Node extends AspectClass {
   static define() {return {
     name : "Node",
@@ -107,11 +135,17 @@ export class Node extends AspectClass {
     outputs : {}
   }};
   
+  static inherit(defobj) {
+    return new _NodeInherit(defobj);
+  }
+  
   constructor() {
     super();
     
     this.inputs = [];
     this.outputs = [];
+    
+    this._spawn_sockets();
     
     this.inmap = {};
     this.outmap = {};
@@ -119,6 +153,62 @@ export class Node extends AspectClass {
     this.id = -1;
     this.flag = 0;
     this.graph = undefined;
+  }
+  
+  _spawn_sockets() {
+    let def = this.constructor.define();
+    
+    //any node that has called _spawn_socket should have define() static method
+    if (!def) { 
+      throw new Error("bad node class; doesn't implement "static define()" method!");
+    }
+    
+    let p = this.constructor;
+    
+    while (p !== undefined) {
+      def = p.define();
+      
+      let ins, outs;
+      
+      if (!p.define) {
+        //not all parent classes will have define() methods
+        p = p.prototype.prototype.constructor;
+        continue;
+      }
+      
+      if (def instanceof _NodeInherit) {
+        ins = def.def.inputs, outs = def.def.outputs;
+      } else {
+        ins = def.inputs;
+        outs = def.outputs;
+      }
+      
+      for (let k in ins) {
+        if (k in this.inmap) continue;
+        
+        let sock = ins[k].copy();
+        sock.node = this;
+        
+        this.inputs.push(sock);
+        this.inmap[k] = sock;
+      }
+      
+      for (let k in outs) {
+        if (k in this.outmap) continue;
+        
+        let sock = outs[k].copy();
+        sock.node = this;
+        
+        this.outputs.push(sock);
+        this.outmap[k] = sock;
+      }
+      
+      if (def instanceof _NodeInherit) {
+        p = p.prototype.prototype.constructor;
+      } else {
+        p = undefined;
+      }
+    }
   }
   
   toJSON() {
@@ -148,7 +238,7 @@ export class Node extends AspectClass {
   
   //note that nodes are responsible for calling .update()
   //on their child nodes
-  execute() {
+  execute(ctx) {
   }
   
   static fromSTRUCT(reader) {
@@ -268,7 +358,7 @@ export class Graph extends Node {
     this.flag &= ~NodeFlags.RESORT;
   }
   
-  executeCycles() {
+  executeCycles(ctx) {
     for (let i=0; i<100; i++) {
       let changed = 0;
       let delta = 0;
@@ -287,8 +377,11 @@ export class Graph extends Node {
             sock.storeLastValue();
           }
           
-          n2.execute();
+          n2.execute(ctx);
           n2.flag &= ~NodeFlags.UPDATE; 
+          for (let sock of n2.inputs) {
+            sock.flag &= ~SocketFlags.UPDATE;
+          }
         }
       }
       
@@ -299,14 +392,18 @@ export class Graph extends Node {
     
     console.warn("Graph failed to converge");
   }
-  execute() {
+  execute(ctx) {
     if (this.allowCycles) {
       return this.executeCycles();
     }
     
     for (let n of this.sortlist) {
       if (n.flag & NodeFlags.UPDATE) {
-        n.execute();
+        n.execute(ctx);
+        
+        for (let sock of n.inputs) {
+          sock.flag &= ~SocketFlags.UPDATE;
+        }
       }
     }
   }

@@ -2,7 +2,11 @@ import bpy
 from . import utils
 
 class ObjectSettings(bpy.types.PropertyGroup):
-    ignore = bpy.props.BoolProperty()
+    ignore: bpy.props.BoolProperty()
+    is_character: bpy.props.BoolProperty()
+    primary_character: bpy.props.BoolProperty()
+    
+    logic_tree: bpy.props.StringProperty()
     #my_float = bpy.props.FloatProperty()
     #my_string = bpy.props.StringProperty()
 

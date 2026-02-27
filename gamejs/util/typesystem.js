@@ -1,7 +1,16 @@
 "use strict";
 
-console.log(window.global)
-window.global = window
+try {
+  global.window = global;
+} catch (err) {
+}
+
+try {
+  window.global = window
+} catch (err) {
+}
+
+global.self = global;
 
 if (Symbol.aspect === undefined) {
   Symbol.aspect = Symbol("aspect");
